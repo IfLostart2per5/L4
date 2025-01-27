@@ -1,0 +1,73 @@
+program {
+  self:write("#generated python code by L4 (Low Level Lua Library\n")
+  for i = 1, #node do
+    self:generate(node[i])
+  end
+};
+extern {
+  -- nada (no python n tem como injetar funcoes lua la)
+};
+block {
+  -- infelizmente python n tem label T-T
+  self:write("#"..(node.name or "block").."\n")
+  for _, s in ipairs(node.body) do
+    self:write("    ")
+    self:generate(s)
+    self:write("\n")
+  end
+  self:write("    #end "..(node.name or "block").."\n")
+};
+binop {
+  self:write("(")
+  self:generate(node.left)
+  --self:show(node.op)
+  self:write(node.op)
+  self:generate(node.right)
+  self:write(")")
+};
+func {
+  self:write("def "..node.name.."(" .. table.concat(node.params, ", ") .. "):\n")
+  for _, i in ipairs(node.body) do
+    self:write("    ")
+    self:generate(i)
+  end
+
+  self:write("\n")
+};
+assign {
+--self:show(node.seubokuga)
+  self:write(node.name.." = ")
+  self:generate(node.val)
+};
+return {
+  self:write("return ")
+  self:generate(node.arg)
+  self:write("\n")
+};
+int {
+  self:write("" .. node.value)
+};
+float {
+  self:write("" .. node.value)
+};
+str {
+  self:write('"' .. node.value:gsub("\n", "\\n"):
+                    gsub("\t", "\\t"):
+		    gsub("\"", '"') .. '"')
+};
+id {
+  --self:show(node.name)
+  self:write(node.name)
+};
+call {
+  self:generate(node.caller)
+  self:write("(")
+  for i, a in ipairs(node.args) do
+    self:generate(a)
+    if i < #node.args then
+      self:write(", ")
+    end
+  end
+  self:write(")")
+};
+nogenerate { }

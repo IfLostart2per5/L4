@@ -52,7 +52,7 @@ After building our code, we need to run it, right? So, to do this, in the same f
 local gen = L4.generator.new()
 ```
 
-okay? Now, use a config generator file, a text file containing how the node should be generated. Wesll use a ready one: [luagen.lua](./generators/lua.txt). Download this and put it into the same folder of hello.lua.
+okay? Now, use a config generator file, a text file containing how the node should be generated. Wesll use a ready one: [lua](./generators/lua.txt). Download this and put it into the same folder of hello.lua.
 
 Now, write:
 

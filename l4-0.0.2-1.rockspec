@@ -19,8 +19,9 @@ source = {
 build = {
    type = "builtin",
    modules = {
-      builder = "src/builder.lua",  -- intermediate ast builder
-      generator = "src/generator.lua", --generate final code when is given a config file, and the ast,
-      optimizer = "src/optimizer.lua", --an optional phase that wildly "attacks" the code, optimizing it
+      ["l4.builder"] = "src/builder.lua",  -- intermediate ast builder
+      ["l4.generator"] = "src/generator.lua", --generate final code when is given a config file, and the ast,
+      ["l4.optimizer"] = "src/optimizer.lua", --an optional phase that wildly "attacks" the code, optimizing it
+      ["l4.configparser"] = "src/configparser.lua"
    },
 }

@@ -53,8 +53,7 @@ After building our code, we need to run it, right? So, to do this, in the same f
 local gen = L4.generator.new()
 ```
 
-okay? Now, use a config generator file, a text file containing how the node should be generated. We'll use a ready-made one: [luagen.lua](./generators/lua.txt). Download this and put it into the same folder of hello.lua.
-
+okay? Now, use a config generator file, a text file containing how the node should be generated. We'll use a ready-made one: [lua](./generators/lua.txt). Download this and put it into the same folder of hello.lua.
 Now, write:
 
 ```lua
@@ -118,7 +117,7 @@ local call = builder:call(builder:id "print", result)
 main:push(call) --pushes the call into main
 ```
 
-Now, when we run the code, and print the genwrated code, we'll get something like this:
+Now, when we run the code, and print the generated code, we'll get something like this:
 
 ```lua
 --generated lua code by L4 (Low Level Lua Library)

@@ -24,7 +24,7 @@ local ops = {
 	["+"] = function(a, b) return a + b end,
 	["-"] = function(a, b) return a - b end,
 	["*"] = function(a, b) return a * b end,
-	["/"] = function(a, b) return math.floor(a / b) end
+	["/"] = function(a, b, isint) return isint and math.floor(a / b) or a / b end
 }
 
 
@@ -95,8 +95,8 @@ function optimizer:attack(node, data)
 		node.left, node.right = left, right
 		if (left.canattack and right.canattack) then
 			return {
-				tag="int",
-				value=ops[node.op](left.value, right.value),
+				tag=left.tag,
+				value=ops[node.op](left.value, right.value, left.tag == "int"),
 				canattack=true
 			}
 		else

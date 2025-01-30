@@ -11,14 +11,14 @@ package.path = current_dir .. "?.lua;" .. package.path
 -- Adiciona o diretório ao package.cpath (para módulos C)
 package.cpath = current_dir .. "?.so;" .. current_dir .. "?.dll;" .. package.cpath
 
-local module = {}
+local l4 = {}
 
-module.builder = require "src.builder"
-module.generator = require "src.generator"
-module.optimizer = require "src.otimizer"
+l4.builder = require "src.builder"
+l4.generator = require "src.generator"
+l4.optimizer = require "src.optimizer"
 
 package.path = opath
 package.cpath = ocpath
 
-return module
+return l4
 

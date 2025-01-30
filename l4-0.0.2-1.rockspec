@@ -3,8 +3,8 @@ version = "0.0.2-1"      -- Package version
 description = {
    summary = "A lua copy of LLVM",
    license = "MIT",
-   author = "Alexandre Barreto",
-   maintainer = "iscooldev7@gmail.com",
+   detailed="A compilation library, which allows you build code programatically, optimize it, and generate code for any platform, if you makes the platforms config file.",
+   maintainer = "Alexandre Barreto <iscooldev7@gmail.com>",
 }
 
 dependencies = {

@@ -1,6 +1,7 @@
 # L4 (Low Level Lua Library)
 
-Welcome to the docs of L4! Here, we'll describe how to use this library to generate a hello world! First, install this with
+Welcome to the docs of L4! Here, we'll describe how to use this library to generate a 'hello world!' program.
+First, install this with
 
 ```sh
 luarocks install l4
@@ -19,17 +20,17 @@ local L4 = require "L4"
 local builder = L4.builder.new()
 ```
 
-okay, now, let's import a important function: the print!
+okay, now, let's import an important function: the print!
 ```lua
 builder:extern("print") -- this doesn't load it instantly. Instead, the generator will take care of this
 ```
 
-made this, we can build our main function, becausethe generator only works with functions:
+having done this, we can build our main function, because the generator only works with functions:
 
 ```lua
 local main = builder:func("main", {}) --creates a function main with no parameters
 
-local entry = builder:block("entry") --creates a entry block (yes, quite based on llvm)
+local entry = builder:block("entry") --creates an entry block (yes, quite based on llvm)
 
 main:setblock(entry) -- configure the entry block as the current block of function
 
@@ -52,7 +53,7 @@ After building our code, we need to run it, right? So, to do this, in the same f
 local gen = L4.generator.new()
 ```
 
-okay? Now, use a config generator file, a text file containing how the node should be generated. Wesll use a ready one: [luagen.lua](./generators/lua.txt). Download this and put it into the same folder of hello.lua.
+okay? Now, use a config generator file, a text file containing how the node should be generated. We'll use a ready-made one: [luagen.lua](./generators/lua.txt). Download this and put it into the same folder of hello.lua.
 
 Now, write:
 
@@ -60,7 +61,7 @@ Now, write:
 local decls = builder:get() -- get the builder declarations
 gen:config("lua.txt") -- configures the generator file
 gen:generate(decls)
-local comp = gen:get() --obtains the resultant object
+local comp = gen:get() --obtains the resulting object
 ```
 
 Here, the comp object contains two things:
@@ -76,6 +77,64 @@ comp.funcs.main()
 
 and with this, you'll see Hello world, and we're done!
 
-# Other things
+# The optimizer
 
-You can use the optimizer class, a experimental ast optimizer. I'll explain this in other doc
+Optionally, you can apply a optimization into the built code before generation, but, currently this optimizer makes small optimizations: constant folding and function inlining.
+
+To add this into code, write this before generation
+
+```lua
+--... previous code before generation
+local opt = L4.optimizer.new()
+local decls = builder:get()
+local optimized = opt:attack(decls)
+
+--...generation
+```
+
+so, you'll get a optimized ast. With our example, hello world won't need anything more, so, we can produce a function to this:
+
+```lua
+local sum = builder:func("sum", {'x', 'y'})
+local sumblock = builder:block("sumblk")
+
+sum:setblock(sumblock)
+local add = builder:binary_op(builder:id "x", builder:id "y", "+")
+sum:push(builder:ret(add))
+
+---...main function
+```
+
+okay, and, in the main function:
+
+```lua
+---...sum functiln 
+local main = builder:func("main", {})
+local entry = builder:block("entry")            
+main:setblock(entry)              
+local result = builder:call(builder:id "sum", buil
+der:int(2), builder:int(3))
+local call = builder:call(builder:id "print", result)
+main:push(call) --pushes the call into main
+```
+
+Now, when we run the code, and print the genwrated code, we'll get something like this:
+
+```lua
+--generated lua code by L4 (Low Level Lua Library)
+function sum(x, y)
+::sumblk::
+return (x+y)
+
+--::sumblk::
+end
+function main()
+::entry::
+print((2+3)) --(that's my comment) here's the inlined result of sum(2, 3) 
+--::entry::
+end
+```
+
+as i said, it does small optimizations, and, it's experimental (like this whole project hahaha).
+
+well, I hope that this was a goood tutorial for the basic use of L4, I'll make more detailed documentation later, okay?

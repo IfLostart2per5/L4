@@ -1,5 +1,6 @@
 unpack = unpack or table.unpack
 
+--a deeply deep clone
 local function clone(tbl)
 	local tbl2 = {}
 
@@ -13,18 +14,85 @@ local function clone(tbl)
 	return tbl2
 end
 
+--checks if a node can be evaluated as "falsy"
+--  1: if this value is bool and it's value is false, okay, falsy
+--  2: if this value is of other types, it's truthy.
+--  3: if this value is another expression, the result is undeterminated
+local function isfalsy(node)
+	if node.tag == "bool" and node.value == false then
+		return true
+	elseif node.tag == "bool" and node.value then
+		return false
+
+	elseif node.tag == "int" or node.tag == "float" or node.tag == "string" then
+		return false
+	end
+
+	return
+end
+
+--Injects a table into another
+local function absorb(host, symbiose)
+	for k, v in pairs(symbiose) do
+		host[k] = v
+	end
+end
+
+--"kills" a table, and fill it with an other
+local function wither(corpse, consumer)
+	local k, v = next(corpse)
+	while k do
+		local nk, nv = next(corpse, k)
+		corpse[k] = nil
+		k, v = nk, nv
+	end
+
+	absorb(corpse, consumer)
+end
+
+
+--- DEBUG ------------------------------------
+--a counter :)
+local function counter()
+	local i = 0
+
+	return function()
+		print(i)
+		i = i + 1
+	end
+end
+
+local function show_ctx(level)
+	local info = debug.getinfo(level + 1)
+	print(level .. " Context {")
+	for k, v in pairs(info) do
+		print(" ", k, v)
+	end
+	print "}"
+end
+
+----- THE OPTIMIZER -------------------------
+local asg_c = counter()
 local optimizer = {}
 local optmt = {__index=optimizer}
 function optimizer.new()
 	local gbl = {names={}, changed={}}
 	return setmetatable({curscope=gbl, scopes={global=gbl}}, optmt)
 end
-
 local ops = {
 	["+"] = function(a, b) return a + b end,
 	["-"] = function(a, b) return a - b end,
 	["*"] = function(a, b) return a * b end,
-	["/"] = function(a, b, isint) return isint and math.floor(a / b) or a / b end
+	["/"] = function(a, b, isint) return isint and math.floor(a / b) or a / b end,
+	["<"] = function(a, b) return a < b end,
+	[">"] = function(a, b) return a > b end,
+	["=="] = function(a, b) return a == b end,
+	["!="] = function(a, b) return a ~= b end,
+	[">="] = function(a, b) return a >= b end,
+	["<="] = function(a, b) return a <= b end,
+	["^"] = function(a, b) return a and b end,
+	["v"] = function(a, b) return a or b end,
+	
 }
 
 
@@ -59,14 +127,12 @@ end
 function optimizer:declare(name, node)
 	local cur = self:scope "@"
 	if rawget(cur.names, name) then
-		--print("olha "..name.." sendo alterado denovo")
 		cur.changed[name] = true
 	end
 	cur.names[name] = node
 end
 
 function optimizer:get(name)
-	--swlf:scope("@").used[name] = true
 	return self:scope("@").names[name]
 end
 
@@ -87,37 +153,55 @@ end
 
 function optimizer:attack(node, data)
 	data = data or emptydata
-	--print(node.tag)
+
 	if node.tag == "binop" and not data.useless_expr then
-		local left = self:attack(node.left, {subst_id=true, block=data.block, index=data.index})
-		local right = self:attack(node.right, {subst_id=true, block=data.block, index=data.index})
-		--print("OPERACAO", left.tag, right.tag)
+		local left = self:attack(node.left
+		, {subst_id=true,
+		block=data.block,
+		index=data.index})
+
+
+		local right = self:attack(node.right
+		,{subst_id=true,
+		block=data.block,
+		index=data.index})
+
 		node.left, node.right = left, right
 		if (left.canattack and right.canattack) then
-			return {
-				tag=left.tag,
+			local r = {
+				tag=node.op:match "[+%-%*/]" and left.tag or "bool",
 				value=ops[node.op](left.value, right.value, left.tag == "int"),
 				canattack=true
 			}
+			wither(node, r)
+			return r
 		else
 			return node
 		end
-	elseif (node.tag == "int" or node.tag == "float" or node.tag == "string") and not data.useless_expr then
-		--print("was", node.value)
+	elseif (node.tag == "int" or
+		node.tag == "float" or
+		node.tag == "string" or
+		node.tag == "bool") and not data.useless_expr then
+
+		if node.tag == "float" and (math.floor(node.value) == node.value) then
+			node.tag = "int"
+		end
+
 		node.canattack = true
 		return node
 	elseif node.tag == "id" then
 		local sc = self:scope "@"
 		local got = self:get(node.name)
-		--print("vamos ver se vai... com "..node.name)
+
 		if sc.names[node.name] and  not sc.changed[node.name] then
-			--print("foi!!", got.tag)
+			
 			return got
 		end
-		--print("nao?", sc.names[node.name], sc.changed[node.name])
+		
 		return node
 	elseif node.tag == "assign" then
 		node.val = self:attack(node.val, {subst_id=true, block=data.block, index=data.index})
+		--show_ctx(2)
 		self:declare(node.name, node.val)
 		return node
 	elseif node.tag == "func" then
@@ -125,14 +209,21 @@ function optimizer:attack(node, data)
 		self:declare(node.name, node)
 		local oldsc = self:scope "@"
 		self:newscope(node.name, oldsc)
-		--print("body", node.body, #node.body)
+		
 		for i = 1, #node.params do
 			self:declare(node.params[i], {tag="id", name=node.params[i]})
-		end	
+		end
+
+		
 		for i = 1, #node.body do
 			local block = node.body[i]
-			--print(node.name, #block.body)
-			
+			if #block.body == 0 then
+				block.tag = "nogenerate"
+				goto continue
+			end
+			if block.refc == 0 then
+				block.tag = "nogenerate"
+			end
 			--desculpe pelo loop duplo, mas é pra facilitar o inlining de constantes e funcoes (processar primeiro assignes pra dps ir pra outras instrucoes)
 			for j = 1, #block.body do
 				if block.body[j].tag == "assign" then
@@ -142,7 +233,7 @@ function optimizer:attack(node, data)
 
 			for j = 1, #block.body do
 				--print(block.body[j].tag)
-				if node.tag == "assign" then goto continue end
+				if block.body[j].tag == "assign" then goto continue end
 				self:attack(block.body[j], {useless_expr=true, tomarkret=node, block=block, index=j})
 
 				::continue::
@@ -150,6 +241,7 @@ function optimizer:attack(node, data)
 			if #block.body <= 5 and node.name ~= "main" then
 				caninline=true
 			end
+			::continue::
 		end
 		self:move2scope(oldsc)
 		node.caninline = caninline
@@ -211,6 +303,33 @@ function optimizer:attack(node, data)
 		--print(node.name)
 		self.scopes.global[node.name] = node
 		return node
+	elseif node.tag == "br" then
+		if node.to.refc == 0 then
+			node.tag = "nogenerate"
+		end
+
+		
+		return node
+	elseif node.tag == "condbr" then
+		local mdata = {subst_id=true, block=data.block, index=data.index}
+		local cond = self:attack(node.condition, mdata)
+		
+		if isfalsy(cond) then
+			node.tag = "br"
+			node.to.tag = "nogenerate"
+			node.to = node.alt
+			node.alt = nil
+			node.condition = nil
+			self:attack(node, mdata)
+		elseif isfalsy(cond) == false then
+			node.tag ="br"
+			node.alt.tag = "nogenerate"
+			node.alt = nil
+			node.condition = nil
+			self:attack(node, mdata)
+		end
+
+		return node			
 	else
 		if data.useless_expr then
 			--prit("useless", node.tag)

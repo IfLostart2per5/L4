@@ -42,10 +42,22 @@ func {
   local finale = #self.code
 
   local fcode = table.concat(self.code, "", start, finale)
-  self:show(fcode)
+  --self:show(fcode)
   local f = load(fcode, node.name, nil, extends(self.funcs, self.env))
   f()
   self.funcs["*"..node.name] = node
+};
+br {
+  self:write("goto "..node.to.name.."\n")
+};
+condbr {
+  self:write("if ")
+  self:generate(node.condition)
+  self:write(" then goto "..node.to.name)
+  if node.alt then
+    self:write(" else goto "..node.alt.name)
+  end
+  self:write(" end\n")
 };
 assign {
 --self:show(node.seubokuga)
@@ -67,6 +79,9 @@ str {
   self:write('"' .. node.value:gsub("\n", "\\n"):
                     gsub("\t", "\\t"):
 		    gsub("\"", '"') .. '"')
+};
+bool {
+  self:write(node.value and "true" or "false")
 };
 id {
   --self:show(node.name)

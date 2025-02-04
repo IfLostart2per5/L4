@@ -37,6 +37,12 @@ function builder:str(s)
 	}
 end
 
+function builder:bool(vl)
+	return {
+		tag="bool",
+		value=vl
+	}
+end
 function builder:extern(name)
 	local e = {
 		tag="extern",
@@ -64,12 +70,36 @@ function builder:binary_op(left, right, op)
 	}
 end
 
+function builder:branch(condition, tblock, fblock)
+	local cond = "cond"
+	if not tblock then
+		tblock = condition
+		condition = nil
+		cond = ""
+	end
+	tblock.refc = tblock.refc + 1
+	if fblock then
+		fblock.refc = fblock.refc + 1
+	end
+	return {
+		tag=cond .. "br",
+		to=tblock,
+		alt=fblock,
+		condition=condition
+	}
+end
 function builder:block(name)
 	return {
 		tag="block",
 		name=name,
+		refc=0,
 		body={},
 		push = function(s, i)
+			if i.tag == "br" or i.tag == "condbr" then
+				if i.to == s or i.alt == s then
+					s.isloop = true
+				end
+			end
 			table.insert(s.body, i)
 		end
 	}
@@ -84,6 +114,9 @@ function builder:func(name, params)
 		block=nil,
 		setblock=function(s, bl)
 			s.block = bl
+			if #s.body == 0 then
+				bl.refc = bl.refc + 1 --o bloco principal q é usado pela funcao
+			end
 			table.insert(s.body, bl)
 		end,
 		push=function(s, i)

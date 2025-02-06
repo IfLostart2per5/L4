@@ -233,9 +233,11 @@ function optimizer:attack(node, data)
 
 			for j = 1, #block.body do
 				--print(block.body[j].tag)
-				if block.body[j].tag == "assign" then goto continue end
+				if block.body[j].tag == "assign" then goto continue end        
 				self:attack(block.body[j], {useless_expr=true, tomarkret=node, block=block, index=j})
-
+        if block.body[j].tag == "br" and block.body[j].to == node.body[i + 1] then
+          block.body[j].tag = "nogenerate"
+        end
 				::continue::
 			end
 			if #block.body <= 5 and node.name ~= "main" then
@@ -270,7 +272,7 @@ function optimizer:attack(node, data)
 					self:attack(asg, {block=data.block, index=data.index})
 					table.insert(data.block, data.index == 1 and 1 or data.index - 1, asg)
 				else
-					self:declare(asg.name, self:attack(asg.val, {subst_id=true}, true))
+					self:declare(asg.name, self:attack(asg.val, {subst_id=true}))
 				end
 			end
 
@@ -278,7 +280,7 @@ function optimizer:attack(node, data)
 				for _2, l in ipairs(bl.body) do
 					if l.tag == "return" then
 						local retexp = clone(l.arg)
-						self:attack(retexp, {callcounter=data.callcounter, subst_id, block=data.block, index=data.index})
+						self:attack(retexp, {callcounter=data.callcounter, subst_id=true, block=data.block, index=data.index})
 						self:move2scope(oldsc)
 						return retexp
 					end
@@ -304,10 +306,7 @@ function optimizer:attack(node, data)
 		self.scopes.global[node.name] = node
 		return node
 	elseif node.tag == "br" then
-		if node.to.refc == 0 then
-			node.tag = "nogenerate"
-		end
-
+		 
 		
 		return node
 	elseif node.tag == "condbr" then

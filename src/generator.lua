@@ -5,7 +5,6 @@ local generator_mt = {__index=generator}
 function generator.new()
 	return setmetatable({
 		maps = {},
-		passes = {},
 		code = {},
 		funcs={},
 		env = {}
@@ -15,23 +14,18 @@ end
 local fenv = {math=math, table=table, string=string, load=load, ipairs=ipairs, pairs=pairs, extends = function(tbl1, tbl2) return setmetatable(tbl1, {__index=tbl2}) end}
 
 configparser.setenv(fenv)
-function generator:loadmap(filename, maps)
+function generator:loadpass(filename)
 	local f, err = io.open(filename, "r")
-	maps = maps or {}
 	if not f then error(err) end
 	local l = f:read "*a"
 	f:close()
-	configparser.parse(l, maps)
+	local obj = configparser.createPass(l)
 	
-	return maps
+	return obj
 end
 
 function generator:config(filename)
-	self:loadmap(filename, self.maps)
-end
-
-function generator:loadpass(filename)
-	table.insert(self.passes, self:loadmap(filename))
+	self.maps = self:loadpass(filename)
 end
 
 function generator:generate(node)

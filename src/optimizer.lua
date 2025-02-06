@@ -155,6 +155,7 @@ function optimizer:attack(node, data)
 	data = data or emptydata
 
 	if node.tag == "binop" and not data.useless_expr then
+    --here, we have constant foldimg optimizing.
 		local left = self:attack(node.left
 		, {subst_id=true,
 		block=data.block,
@@ -165,7 +166,7 @@ function optimizer:attack(node, data)
 		,{subst_id=true,
 		block=data.block,
 		index=data.index})
-
+    --to reflect the changes in the ast
 		node.left, node.right = left, right
 		if (left.canattack and right.canattack) then
 			local r = {
@@ -173,6 +174,8 @@ function optimizer:attack(node, data)
 				value=ops[node.op](left.value, right.value, left.tag == "int"),
 				canattack=true
 			}
+
+      --other reflect
 			wither(node, r)
 			return r
 		else
@@ -192,7 +195,7 @@ function optimizer:attack(node, data)
 	elseif node.tag == "id" then
 		local sc = self:scope "@"
 		local got = self:get(node.name)
-
+    --constant propagation: if the name wasn't changed, it's safe to get its value
 		if sc.names[node.name] and  not sc.changed[node.name] then
 			
 			return got
@@ -210,6 +213,7 @@ function optimizer:attack(node, data)
 		local oldsc = self:scope "@"
 		self:newscope(node.name, oldsc)
 		
+
 		for i = 1, #node.params do
 			self:declare(node.params[i], {tag="id", name=node.params[i]})
 		end
@@ -217,14 +221,18 @@ function optimizer:attack(node, data)
 		
 		for i = 1, #node.body do
 			local block = node.body[i]
+
+      --eliminate useless blocks
 			if #block.body == 0 then
 				block.tag = "nogenerate"
 				goto continue
 			end
 			if block.refc == 0 then
 				block.tag = "nogenerate"
+        goto continue
 			end
-			--desculpe pelo loop duplo, mas é pra facilitar o inlining de constantes e funcoes (processar primeiro assignes pra dps ir pra outras instrucoes)
+			--double loops for assignment dumps! :D (poethickkkkk)
+      --actually, it's to verify if some var was changed
 			for j = 1, #block.body do
 				if block.body[j].tag == "assign" then
 					self:attack(block.body[j], {block=block, index=j})
@@ -235,11 +243,16 @@ function optimizer:attack(node, data)
 				--print(block.body[j].tag)
 				if block.body[j].tag == "assign" then goto continue end        
 				self:attack(block.body[j], {useless_expr=true, tomarkret=node, block=block, index=j})
-        if block.body[j].tag == "br" and block.body[j].to == node.body[i + 1] then
+
+        --branch elimination if it's followed by the block it appoints
+        if (block.body[j].tag == "br" and (block.body[j].to == node.body[i + 1] or (block.body[j].tag == "nogenerate" and block.body[j].to == node.body[i + 2]))) then
           block.body[j].tag = "nogenerate"
         end
 				::continue::
 			end
+
+      --simple heuristic to optimize: if the function body is shorter, INLINE!
+      --TODO: prohibit inline for recursive functions
 			if #block.body <= 5 and node.name ~= "main" then
 				caninline=true
 			end
@@ -259,26 +272,30 @@ function optimizer:attack(node, data)
 		local caller = self:attack(node.caller)
 		data.callcounter = data.callcounter and data.callcounter + 1 or 1
 		local oldsc = self:scope "@"
+
+    --inline logic
 		if caller.caninline then
 			node.tag = "nogenerate"
-			self:newscope(data.callcounter, self:scope "@", self:scope(caller.name))
+			self:newscope(data.callcounter, self:scope "@", self:scope(caller.name)) --creates a temp scope
 			self:move2scope(self:scope(data.callcounter))
 			local args = self:inline_args(caller.params, node.args)
 
 			for i = 1, #args do
 				local asg = args[i]
-
+        --imsert args, enabling direct substiruition if one wasn't changed
 				if self:scope("@").changed[asg.name] then
 					self:attack(asg, {block=data.block, index=data.index})
 					table.insert(data.block, data.index == 1 and 1 or data.index - 1, asg)
 				else
 					self:declare(asg.name, self:attack(asg.val, {subst_id=true}))
 				end
+        
 			end
 
 			for _, bl in ipairs(caller.body) do
 				for _2, l in ipairs(bl.body) do
 					if l.tag == "return" then
+            --returns the retexpr to the caller
 						local retexp = clone(l.arg)
 						self:attack(retexp, {callcounter=data.callcounter, subst_id=true, block=data.block, index=data.index})
 						self:move2scope(oldsc)
@@ -290,6 +307,7 @@ function optimizer:attack(node, data)
 				end
 			end
 		else
+      --just do normal call, attacling args
 		  for i = 1, #node.args do
 			  node.args[i] = self:attack(node.args[i], {subst_id=true, block=data.block, index=data.index})
 		  end
@@ -302,17 +320,18 @@ function optimizer:attack(node, data)
 		end
 		return node
 	elseif node.tag == "extern" then
-		--print(node.name)
+		
+    --declare extern names
 		self.scopes.global[node.name] = node
 		return node
-	elseif node.tag == "br" then
-		 
-		
+	elseif node.tag == "br" then 
+    --unfortunately I don't know that to do directly here :(
 		return node
 	elseif node.tag == "condbr" then
 		local mdata = {subst_id=true, block=data.block, index=data.index}
 		local cond = self:attack(node.condition, mdata)
 		
+    --inlines a conditional branch, if the condition is constant
 		if isfalsy(cond) then
 			node.tag = "br"
 			node.to.tag = "nogenerate"
@@ -330,6 +349,7 @@ function optimizer:attack(node, data)
 
 		return node			
 	else
+    --discard statement-expressions (such as a 2 + 1; statmemt)
 		if data.useless_expr then
 			--prit("useless", node.tag)
 			node.tag = "nogenerate"
@@ -338,5 +358,5 @@ function optimizer:attack(node, data)
 	end					
 end
 
-optimizer.pass = optimizer.attack
+optimizer.pass = optimizer.attack --enables passimg it to a generalized passing structure
 return optimizer

@@ -1,3 +1,6 @@
+--note: type definitions come from "node.d.lua" file.
+
+---@class builder
 local builder = {}
 local builder_mt = {__index=builder}
 
@@ -8,6 +11,10 @@ function builder.new()
 	}, builder_mt)
 end
 
+---Creates a variable node
+---@param name string
+---@param val node
+---@return assign
 function builder:variable(name, val)
 	return {
 		tag="assign",
@@ -16,6 +23,9 @@ function builder:variable(name, val)
 	}
 end
 
+---Creates a variable getting node (or simply, an indentifier)
+---@param name string
+---@return id
 function builder:id(name)
 	return {
 		tag="id",
@@ -23,6 +33,10 @@ function builder:id(name)
 	}
 end
 
+--literals here
+
+---@param vl integer
+---@return int
 function builder:int(vl)
 	return {
 		tag="int",
@@ -30,6 +44,8 @@ function builder:int(vl)
 	}
 end
 
+---@param s string
+---@return str
 function builder:str(s)
 	return {
 		tag="str",
@@ -37,12 +53,21 @@ function builder:str(s)
 	}
 end
 
+
+---@param vl boolean
+---@return bool
 function builder:bool(vl)
 	return {
 		tag="bool",
 		value=vl
 	}
 end
+
+--literals end 
+
+--Declares an extern name (usually a function)
+---@param name string
+---@return extern
 function builder:extern(name)
 	local e = {
 		tag="extern",
@@ -53,6 +78,10 @@ function builder:extern(name)
 	return e
 end
 
+--Calls a function
+---@param caller node
+---@param ... node
+---@return call
 function builder:call(caller, ...)
 	return {
 		tag="call",
@@ -61,7 +90,12 @@ function builder:call(caller, ...)
 	}
 end
 
-function builder:binary_op(left, right, op)
+--Creates a binary expression
+---@param left node
+---@param right node
+---@param op operators
+---@return binop
+function builder:binop(left, right, op)
 	return {
 		tag="binop",
 		left=left,
@@ -70,6 +104,9 @@ function builder:binary_op(left, right, op)
 	}
 end
 
+--Creates a branch or conditional branching, depending on arguments
+---@overload fun(tblock: block): br
+---@overload fun(condition: node, tblock: block, fblock: block?): condbr
 function builder:branch(condition, tblock, fblock)
 	local cond = "cond"
 	if not tblock then
@@ -88,6 +125,10 @@ function builder:branch(condition, tblock, fblock)
 		condition=condition
 	}
 end
+
+---Creates a named statments list (block)
+---@param name string
+---@return block
 function builder:block(name)
 	return {
 		tag="block",
@@ -105,6 +146,10 @@ function builder:block(name)
 	}
 end
 
+--creates a function, with a blocklist, and some methods
+---@param name string
+---@param params string[]
+---@return func
 function builder:func(name, params)
 	local f = {
 		tag="func",
@@ -129,6 +174,9 @@ function builder:func(name, params)
 	return f
 end
 
+--Creates a return statment 
+---@param value node
+---@return return
 function builder:ret(value)
 	return {
 		tag="return",
@@ -136,6 +184,8 @@ function builder:ret(value)
 	}
 end
 
+---Finalize the program building
+---@return program
 function builder:get()
 	self.decls.tag = "program"
 	local decls = self.decls

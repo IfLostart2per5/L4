@@ -34,15 +34,16 @@ local G = P {
 }
 
 
-
+local unpack = unpack or table.unpack
 
 local module = {
-	parse = function(code, maps)
+	createPass = function(code)
+    local obj = {}
 		local rules = G:match(code)
 		for _, kv in ipairs(rules) do
-			maps[kv[1]] = kv[2]
+			obj[kv[1]] = kv[2]
 		end
-		return rules
+		return obj
 	end,
 	setenv = function(env)
 		cfg.env = env

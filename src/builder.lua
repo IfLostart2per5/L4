@@ -160,13 +160,17 @@ function builder:func(name, params)
 		name=name,
 		params=params,
 		body={},
+    previous={},
 		block=nil,
 		setblock=function(s, bl)
 			s.block = bl
 			if #s.body == 0 then
 				bl.refc = bl.refc + 1 --o bloco principal q é usado pela funcao
 			end
-			table.insert(s.body, bl)
+      if not s.previous[bl] then
+			  table.insert(s.body, bl)
+        s.previous[bl] = true
+      end
 		end,
 		push=function(s, i)
 			s.block:push(i)

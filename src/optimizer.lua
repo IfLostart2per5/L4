@@ -1,5 +1,7 @@
 unpack = unpack or table.unpack
 
+local detector = require "src.detect_recursion"
+
 --a deeply deep clone
 local function clone(tbl)
 	local tbl2 = {}
@@ -76,7 +78,7 @@ local asg_c = counter()
 local optimizer = {}
 local optmt = {__index=optimizer}
 function optimizer.new()
-	local gbl = {names={}, changed={}}
+	local gbl = {recursion_detector=detector.new(), names={}, changed={}}
 	return setmetatable({curscope=gbl, scopes={global=gbl}}, optmt)
 end
 local ops = {
@@ -212,8 +214,8 @@ function optimizer:attack(node, data)
 		self:declare(node.name, node)
 		local oldsc = self:scope "@"
 		self:newscope(node.name, oldsc)
-		
 
+    local isrecursive = self.recursion_detector:isrecursive(node)
 		for i = 1, #node.params do
 			self:declare(node.params[i], {tag="id", name=node.params[i]})
 		end
@@ -252,12 +254,13 @@ function optimizer:attack(node, data)
 			end
 
       --simple heuristic to optimize: if the function body is shorter, INLINE!
-      --TODO: prohibit inline for recursive functions
-			if #block.body <= 5 and node.name ~= "main" then
+			if not isrecursive and #block.body <= 5 and node.name ~= "main" then
 				caninline=true
 			end
 			::continue::
 		end
+
+
 		self:move2scope(oldsc)
 		node.caninline = caninline
 		return node

@@ -39,18 +39,18 @@ local caller = {}
 --allowed operators for binary expressions
 ---@enum operators
 local operators = {
-  ["+"] = 0,
-  ["-"] = 1,
-  ["*"] = 2,
-  ["/"] = 3,
-  [">"] = 4,
-  ["<"] = 5,
-  ["=="] = 6,
-  ["!="] = 7,
-  [">="] = 8,
-  ["<="] = 9,
-  ["^"] = 10, --this is the "and" operator (from math/boolean logic)
-  ["v"] = 11, --this is the "or" operator (from math/boolean logic too)
+  ["+"] = "+",
+  ["-"] = "-",
+  ["*"] = "*",
+  ["/"] = "/",
+  [">"] = ">",
+  ["<"] = "<",
+  ["=="] = "==",
+  ["!="] = "!=",
+  [">="] = ">=",
+  ["<="] = "<=",
+  ["^"] = "^", --this is the "and" operator (from math/boolean logic)
+  ["v"] = "v", --this is the "or" operator (from math/boolean logic too)
 }
 
 ---@class binop : node
@@ -71,6 +71,7 @@ local assign = {}
 ---@class func : node
 ---@field name string
 ---@field params string[]
+---@field previous { [table]: boolean }
 ---@field body block[]
 ---@field block block
 local func = {}

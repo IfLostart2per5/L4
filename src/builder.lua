@@ -105,8 +105,12 @@ function builder:binop(left, right, op)
 end
 
 --Creates a branch or conditional branching, depending on arguments
+
 ---@overload fun(tblock: block): br
----@overload fun(condition: node, tblock: block, fblock: block?): condbr
+---@param condition node
+---@param tblock block
+---@param fblock block?
+---@return table
 function builder:branch(condition, tblock, fblock)
 	local cond = "cond"
 	if not tblock then

@@ -4,10 +4,12 @@ Welcome to the docs of L4! Here, we'll describe how to use this library to gener
 First, install this with
 
 ```sh
-luarocks install l4
+git clone https://www.github.com/IfLostart2per5/L4
+cd L4
+luarocks make l4-0.0.2-1.rockspec
 ```
 
-Note: a great changebocurrwd: introduction of a more strict type system for the builder, to make easier the generation for typed languages, or typed-optimizations
+Note: a great change ocurred: the introduction of a more strict type system for the builder, to make easier the generation for typed languages, or typed-optimizations
 
 and let's go!
 
@@ -84,7 +86,7 @@ and with this, you'll see Hello world, and we're done!
 
 # The optimizer
 
-Optionally, you can apply a optimization into the built code before generation, but, currently this optimizer makes small optimizations: constant folding and function inlining.
+Optionally, you can apply a optimization into the built code before generation, but, currently this optimizer makes small optimizations: constant folding, function inlining, branch inline and dead code elimination.
 
 To add this into code, write this before generation
 

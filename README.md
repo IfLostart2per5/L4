@@ -7,6 +7,8 @@ First, install this with
 luarocks install l4
 ```
 
+Note: a great changebocurrwd: introduction of a more strict type system for the builder, to make easier the generation for typed languages, or typed-optimizations
+
 and let's go!
 
 This tutorial will suppose that you already know how to use lua.
@@ -22,15 +24,18 @@ local builder = L4.builder.new()
 
 okay, now, let's import an important function: the print!
 ```lua
-builder:extern("print") -- this doesn't load it instantly. Instead, the generator will take care of this
+builder:extern("print", builder:signature(builder:ty "String", builder:ty "Void")) -- this doesn't load it instantly. Instead, the generator will take care of this
+--about the signature, it represents (String) -> Void
+
 ```
 
 having done this, we can build our main function, because the generator only works with functions:
 
 ```lua
-local main = builder:func("main", {}) --creates a function main with no parameters
+local mainsign = builder:signature(builder:ty "Void") --() -> Void
+local main = builder:func("main", {}, mainsign) --creates a function main with no parameters
 
-local entry = builder:block("entry") --creates an entry block (yes, quite based on llvm)
+local entry = builder:block("entry", mainsign) --creates an entry block, with tje signature of the function for return-checking reasons (yes, quite based on llvm)
 
 main:setblock(entry) -- configure the entry block as the current block of function
 
@@ -39,6 +44,7 @@ main:setblock(entry) -- configure the entry block as the current block of functi
 local call = builder:call(builder:id "print", builder:str "Hello world") -- creates a call, where the first argument is the caller, and the rest are arguments to the caller
 
 main:push(call) --pushes the call into main
+main:push(builder:ret())
 ```
 
 
@@ -94,11 +100,12 @@ local optimized = opt:attack(decls)
 so, you'll get a optimized ast. With our example, hello world won't need anything more, so, we can produce a function to this:
 
 ```lua
-local sum = builder:func("sum", {'x', 'y'})
-local sumblock = builder:block("sumblk")
+local sumsign = builder:signature(builder:ty "Int", builder:ty "Int", builder:ty "Int") -- (Int, Int) -> Int
+local sum = builder:func("sum", {'x', 'y'}, sumsign)
+local sumblock = builder:block("sumblk", sumsign)
 
 sum:setblock(sumblock)
-local add = builder:binary_op(builder:id "x", builder:id "y", "+")
+local add = builder:binop(builder:ty "Int", builder:id "x", builder:id "y", "+")
 sum:push(builder:ret(add))
 
 ---...main function
@@ -107,14 +114,17 @@ sum:push(builder:ret(add))
 okay, and, in the main function:
 
 ```lua
----...sum functiln 
-local main = builder:func("main", {})
-local entry = builder:block("entry")            
+---...sum function
+builder:extern("tostring", builder:signature(builder:ty "Int", builder:ty "String")) --due to the new type system, this is necessary. and the type is (Imt) -> String.
+local mainsign = builder:signature(builder:ty "Void")
+local main = builder:func("main", {}, mainsign)
+local entry = builder:block("entry", mainsign)            
 main:setblock(entry)              
-local result = builder:call(builder:id "sum", buil
-der:int(2), builder:int(3))
-local call = builder:call(builder:id "print", result)
+local result = builder:call(builder:id "sum", builder:int(2), builder:int(3))
+local str = builder:call(b:id "tostring", result)
+local call = builder:call(builder:id "print", str)
 main:push(call) --pushes the call into main
+main:push(builder:ret())
 ```
 
 Now, when we run the code, and print the generated code, we'll get something like this:

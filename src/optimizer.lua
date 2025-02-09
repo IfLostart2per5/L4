@@ -1,7 +1,8 @@
 unpack = unpack or table.unpack
 
+--tyoes here come from node.d.lua
 local detector = require "src.detect_recursion"
-
+local tys = require "src.std"
 --a deeply deep clone
 local function clone(tbl)
 	local tbl2 = {}
@@ -20,17 +21,21 @@ end
 --  1: if this value is bool and it's value is false, okay, falsy
 --  2: if this value is of other types, it's truthy.
 --  3: if this value is another expression, the result is undeterminated
-local function isfalsy(node)
-	if node.tag == "bool" and node.value == false then
-		return true
-	elseif node.tag == "bool" and node.value then
-		return false
 
-	elseif node.tag == "int" or node.tag == "float" or node.tag == "string" then
+---i
+---@param node bool | int | float | string | node
+---@return boolean?
+local function isfalsy(node)
+  if not node.ty then
+    return
+  end
+	if node.ty == tys.ty "Bool" and node.value == false then
+		return true
+	elseif node.ty == tys.ty "Bool" and node.value then
+		return false 
+  else
 		return false
 	end
-
-	return
 end
 
 --Injects a table into another
@@ -39,6 +44,7 @@ local function absorb(host, symbiose)
 		host[k] = v
 	end
 end
+
 
 --"kills" a table, and fill it with an other
 local function wither(corpse, consumer)
@@ -74,12 +80,21 @@ local function show_ctx(level)
 end
 
 ----- THE OPTIMIZER -------------------------
-local asg_c = counter()
+
 local optimizer = {}
 local optmt = {__index=optimizer}
-function optimizer.new()
-	local gbl = {recursion_detector=detector.new(), names={}, changed={}}
-	return setmetatable({curscope=gbl, scopes={global=gbl}}, optmt)
+
+
+function optimizer.new(config)
+  config = config or {
+    unfold_consts = true,
+    assumpt_conditions=true,
+    discard_deads=true,
+    expand_functions=true
+  }
+  
+	local gbl = {names={}, changed={}}
+	return setmetatable({config=config, recursion_detector=detector.new(), curscope=gbl, scopes={global=gbl}}, optmt)
 end
 local ops = {
 	["+"] = function(a, b) return a + b end,
@@ -139,13 +154,14 @@ function optimizer:get(name)
 end
 
 
-function optimizer:inline_args(params, args)
+function optimizer:inline_args(paramtypes, params, args)
 	local names = {}
 	for i = 1, #params do
 		names[#names + 1] = {
 			tag="assign",
 			name=params[i],
-			val=args[i]
+			val=args[i],
+      ty=paramtypes[i]
 		}
 	end
 
@@ -153,10 +169,11 @@ function optimizer:inline_args(params, args)
 end
 
 
+--"Oh, poor AST. Too inefficient. Sorry, I need to attack you violently to make your efficiency better!!!"
 function optimizer:attack(node, data)
 	data = data or emptydata
 
-	if node.tag == "binop" and not data.useless_expr then
+	if self.config.unfold_consts and node.tag == "binop" and not data.useless_expr then
     --here, we have constant foldimg optimizing.
 		local left = self:attack(node.left
 		, {subst_id=true,
@@ -168,12 +185,14 @@ function optimizer:attack(node, data)
 		,{subst_id=true,
 		block=data.block,
 		index=data.index})
+
     --to reflect the changes in the ast
 		node.left, node.right = left, right
 		if (left.canattack and right.canattack) then
 			local r = {
 				tag=node.op:match "[+%-%*/]" and left.tag or "bool",
 				value=ops[node.op](left.value, right.value, left.tag == "int"),
+        ty=node.ty,
 				canattack=true
 			}
 
@@ -183,18 +202,19 @@ function optimizer:attack(node, data)
 		else
 			return node
 		end
-	elseif (node.tag == "int" or
+	elseif self.config.unfold_consts and(node.tag == "int" or
 		node.tag == "float" or
 		node.tag == "string" or
 		node.tag == "bool") and not data.useless_expr then
 
 		if node.tag == "float" and (math.floor(node.value) == node.value) then
 			node.tag = "int"
+      node.ty = tys.ty "Int"
 		end
 
 		node.canattack = true
 		return node
-	elseif node.tag == "id" then
+	elseif self.config.unfold_consts and node.tag == "id" then
 		local sc = self:scope "@"
 		local got = self:get(node.name)
     --constant propagation: if the name wasn't changed, it's safe to get its value
@@ -217,22 +237,26 @@ function optimizer:attack(node, data)
 
     local isrecursive = self.recursion_detector:isrecursive(node)
 		for i = 1, #node.params do
-			self:declare(node.params[i], {tag="id", name=node.params[i]})
+			self:declare(node.params[i], {tag="id", name=node.params[i], ty=node.sign.attrs.params[i]})
 		end
-
-		
-		for i = 1, #node.body do
+    local j = 1
+    local i = 1
+		while i <= #node.body  do
 			local block = node.body[i]
 
       --eliminate useless blocks
-			if #block.body == 0 then
-				block.tag = "nogenerate"
-				goto continue
-			end
-			if block.refc == 0 then
-				block.tag = "nogenerate"
-        goto continue
-			end
+      if self.config.discard_deads then
+			  if #block.body == 0 then
+				  table.remove(node.body, i)
+          i = i - 1
+				  goto continue
+			  end
+			  if block.refc == 0 then
+				  table.remove(node.body, i) 
+          i = i - 1
+          goto continue
+			  end
+      end
 			--double loops for assignment dumps! :D (poethickkkkk)
       --actually, it's to verify if some var was changed
 			for j = 1, #block.body do
@@ -240,24 +264,37 @@ function optimizer:attack(node, data)
 					self:attack(block.body[j], {block=block, index=j})
 				end
 			end
-
-			for j = 1, #block.body do
+      
+			while j <= #block.body do
 				--print(block.body[j].tag)
 				if block.body[j].tag == "assign" then goto continue end        
-				self:attack(block.body[j], {useless_expr=true, tomarkret=node, block=block, index=j})
+				self:attack(block.body[j], {useless_expr=self.config.discard_deads, tomarkret=node, block=block, index=j})
 
         --branch elimination if it's followed by the block it appoints
-        if (block.body[j].tag == "br" and (block.body[j].to == node.body[i + 1] or (block.body[j].tag == "nogenerate" and block.body[j].to == node.body[i + 2]))) then
-          block.body[j].tag = "nogenerate"
+        if self.config.discard_deads then 
+          if block.body[j].tag == "nogenerate" then
+            table.remove(block.body, j)
+          elseif block.body[j].tag == "br" then
+            local n = block.body[j]
+            if n.to == node.body[i + 1] or n.to == node.body[i + 2] then
+              if node.body[i + 1] and node.body[i + 1].refc == 0 then
+                table.remove(node.body, i + 1)
+              end
+
+              table.remove(block.body, j)
+            end
+          end
         end
 				::continue::
+        j = j + 1
 			end
 
       --simple heuristic to optimize: if the function body is shorter, INLINE!
-			if not isrecursive and #block.body <= 5 and node.name ~= "main" then
+			if self.config.expand_functions and not isrecursive and #block.body <= 5 and node.name ~= "main" then
 				caninline=true
 			end
 			::continue::
+      i = i + 1
 		end
 
 
@@ -265,6 +302,11 @@ function optimizer:attack(node, data)
 		node.caninline = caninline
 		return node
 	elseif node.tag == "return" then
+    if node.arg.tag == "void" then
+      node.desconsider = true
+      return node
+    end
+    
 		node.arg = self:attack(node.arg, {subst_id=true, block=data.block, index=data.index})
 		if data.tomarkret then
 			data.tomarkret.retexpr = node.arg
@@ -277,8 +319,10 @@ function optimizer:attack(node, data)
 		local oldsc = self:scope "@"
 
     --inline logic
-		if caller.caninline then
+		if self.config.expand_functions and caller.caninline then
+      caller.refc = caller.refc - 1
 			node.tag = "nogenerate"
+  
 			self:newscope(data.callcounter, self:scope "@", self:scope(caller.name)) --creates a temp scope
 			self:move2scope(self:scope(data.callcounter))
 			local args = self:inline_args(caller.params, node.args)
@@ -299,6 +343,9 @@ function optimizer:attack(node, data)
 				for _2, l in ipairs(bl.body) do
 					if l.tag == "return" then
             --returns the retexpr to the caller
+            if l.desconsider then
+              return l
+            end 
 						local retexp = clone(l.arg)
 						self:attack(retexp, {callcounter=data.callcounter, subst_id=true, block=data.block, index=data.index})
 						self:move2scope(oldsc)
@@ -321,6 +368,20 @@ function optimizer:attack(node, data)
 		for i = 1, #node do
 			self:attack(node[i])
 		end
+
+    --second pass to eliminate nin-used functiond
+    if not self.config.discard_deads then return node end
+    for i = 1, #node do
+      if node[i].tag == "nogenerate" then
+        table.remove(node, i)
+      end
+      if node[i].tag == "func" then
+        if node[i].refc == 0 and node[i].name ~= "main" then
+          table.remove(node, i)
+          self.curscope[node[i].name] = nil
+        end
+      end
+    end
 		return node
 	elseif node.tag == "extern" then
 		
@@ -333,18 +394,21 @@ function optimizer:attack(node, data)
 	elseif node.tag == "condbr" then
 		local mdata = {subst_id=true, block=data.block, index=data.index}
 		local cond = self:attack(node.condition, mdata)
-		
+		if not self.config.assumpt_conditions then
+		  return node
+		end
     --inlines a conditional branch, if the condition is constant
 		if isfalsy(cond) then
 			node.tag = "br"
-			node.to.tag = "nogenerate"
+			node.to.refc = node.to.refc - 1
+
 			node.to = node.alt
 			node.alt = nil
 			node.condition = nil
 			self:attack(node, mdata)
 		elseif isfalsy(cond) == false then
 			node.tag ="br"
-			node.alt.tag = "nogenerate"
+			node.alt.refc = node.alt.refc - 1
 			node.alt = nil
 			node.condition = nil
 			self:attack(node, mdata)

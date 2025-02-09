@@ -1,26 +1,94 @@
 --note: type definitions come from "node.d.lua" file.
+---@alias basictypes
+---| "Int"
+---| "Float"
+---| "String"
+
+local tys =require("src.std")
+---@class Signature : Typedef
+---@field attrs {params: Typedef[], returns: Typedef}
+
+---@alias scope { [string]: [Typedef, node] }
 
 ---@class builder
+---@field decls node[]
+---@field types { [string]: Typedef } 
+---@field scopes { [string]: scope }
+---@field assign_counters { [string]: assign }
+---@field scope scope
 local builder = {}
 local builder_mt = {__index=builder}
 
 
+---Blocks void values
+---@param node node
+---@return node?
+local function blockvoid(node)
+  if node.ty == tys.ty "Void" then
+    return error("Expected a a value, but got nothing.")
+  end
+  return node
+end
+
+---comment
+---@param ty Typedef
+---@return Typedef?
+local function blockvoidty(ty)
+  return assert(ty ~= tys.ty "Void" and ty, "Tyoe void for values is forbidden")
+end
+ 
+
 function builder.new()
+  local glb = {}
 	return setmetatable({
-		decls={}
+		decls={},
+    scopes={global=glb},
+    scope=glb,
+    currentf=nil,
+    types=tys.types
 	}, builder_mt)
 end
 
+
+---@param name string | Typedef
+---@return Typedef
+function builder:ty(name)
+  if type(name) == "table" then
+    return name
+  end
+  assert(self.types[name], ("Type %s doesn't exists"):format(name))
+  return self.types[name]
+end
 ---Creates a variable node
 ---@param name string
 ---@param val node
 ---@return assign
-function builder:variable(name, val)
+function builder:assign(name, ty, val)
+  local typ = blockvoidty(self:ty(ty))
+
+  if self.scope[name] then
+    assert(self.scope[name][1] == typ, ("Expected type %s, but got %s"):format(self.scope[name][1].name, typ.name))
+    self.scope[name][2] = blockvoid(val)
+  else
+    self.scope[name] = {typ, blockvoid(val)}
+  end
 	return {
 		tag="assign",
 		name=name,
-		val=val
+		val=val,
+    refc=0,
+    ty=typ
 	}
+end
+
+function builder:_put_scope(name)
+  local sc = setmetatable({}, {__index=self.scopes.global})
+  self.scopes[name] = sc
+  self.scope = sc
+end
+
+function builder:getid(name)
+  return self.scope[name]
 end
 
 ---Creates a variable getting node (or simply, an indentifier)
@@ -29,7 +97,8 @@ end
 function builder:id(name)
 	return {
 		tag="id",
-		name=name
+		name=name,
+    ty=assert(self:getid(name), "id "..name.." not found")[1], 
 	}
 end
 
@@ -40,8 +109,19 @@ end
 function builder:int(vl)
 	return {
 		tag="int",
-		value=vl
+		value=assert(type(vl) == "number" and math.floor(vl), "Expected a number"),
+    ty=self:ty "Int"
 	}
+end
+
+---@param vl number
+---@return float
+function builder:float(vl)
+  return {
+    tag="float",
+    value=assert(type(vl) == "number" and vl, "Expected a float"),
+    ty=self:ty "Float"
+  }
 end
 
 ---@param s string
@@ -49,7 +129,8 @@ end
 function builder:str(s)
 	return {
 		tag="str",
-		value=s
+		value=assert(type(s) == "string" and s, "Expected a string"),
+    ty=self:ty "String"
 	}
 end
 
@@ -59,7 +140,8 @@ end
 function builder:bool(vl)
 	return {
 		tag="bool",
-		value=vl
+		value=vl,
+    ty=self:ty "Bool"
 	}
 end
 
@@ -68,12 +150,14 @@ end
 --Declares an extern name (usually a function)
 ---@param name string
 ---@return extern
-function builder:extern(name)
+function builder:extern(name, ty)
 	local e = {
 		tag="extern",
-		name=name
+		name=name,
+    ty=self:ty(ty)
 	}
 
+  self.scopes.global[name] = {e.ty, e}
 	table.insert(self.decls, e)
 	return e
 end
@@ -83,10 +167,28 @@ end
 ---@param ... node
 ---@return call
 function builder:call(caller, ...)
+  local sign = caller.ty
+  ---@cast sign Signature
+  
+  for i, a in ipairs({...}) do
+    blockvoid(a)
+    if a.ty ~= sign.attrs.params[i] then
+      error(("Expected %s, but got %s"):format(sign.attrs.params[i].name, a.ty.name))
+    end
+  end
+  if caller.tag == "id" then
+    ---@cast caller id
+    local f = self:getid(caller.name)[2]
+    if f.tag == "func" then
+      ---@cast f func 
+      f.refc = f.refc + 1
+    end
+  end
 	return {
 		tag="call",
 		caller=caller,
-		args={...}
+		args={...},
+    ty=sign.attrs.returns
 	}
 end
 
@@ -95,12 +197,15 @@ end
 ---@param right node
 ---@param op operators
 ---@return binop
-function builder:binop(left, right, op)
+function builder:binop(ty, left, right, op)
+  local isbool = not (op == "+" or op == "-" or op == "*" or op == "/")
+  local t = blockvoidty(self:ty(ty))
 	return {
 		tag="binop",
-		left=left,
-		right=right,
-		op=op
+		left=blockvoid(left),
+		right=blockvoid(right),
+		op=op,
+    ty=assert((not isbool and ( left.ty == t and right.ty == t) and t or nil) or (t == self:ty "Bool" and t), ("Types %s and %s are imcompatible with %s"):format(left.ty.name, right.ty.name, ty.name))
 	}
 end
 
@@ -113,6 +218,7 @@ end
 ---@return table
 function builder:branch(condition, tblock, fblock)
 	local cond = "cond"
+  blockvoid(condition)
 	if not tblock then
 		tblock = condition
 		condition = nil
@@ -132,8 +238,10 @@ end
 
 ---Creates a named statments list (block)
 ---@param name string
+---@param func Signature?
 ---@return block
-function builder:block(name)
+function builder:block(name, func)
+  local retty = func and func.attrs.returns
 	return {
 		tag="block",
 		name=name,
@@ -145,21 +253,47 @@ function builder:block(name)
 					s.isloop = true
 				end
 			end
+      if retty then
+        if i.tag == "return" then
+          assert(i.arg.ty == retty, ("Expected %s, but got %s"):format(retty == self:ty "Void" and "no value" or retty.name .. " type", retty == self:ty "Void" and "one" or retty.name .. " type"))
+        end
+      end
 			table.insert(s.body, i)
 		end
 	}
 end
 
+
+
+---@return Signature
+function builder:signature(...)
+  local args = {...}
+
+  local params = {}
+  for i = 1, #args - 1 do
+    params[#params+1] = self:ty(args[i])
+  end
+
+  local returns = self:ty(args[#args])
+  return {name="function", attrs={params=params, returns=returns}}
+end
 --creates a function, with a blocklist, and some methods
 ---@param name string
 ---@param params string[]
+---@param signature Signature
 ---@return func
-function builder:func(name, params)
+function builder:func(name, params, signature)
+  self:_put_scope(name)
+  for i, v in ipairs(params) do
+    self.scope[v] = {signature.attrs.params[i], {tag="boiler"}}
+  end
 	local f = {
 		tag="func",
 		name=name,
 		params=params,
+    sign=signature,
 		body={},
+    refc=0,
     previous={},
 		block=nil,
 		setblock=function(s, bl)
@@ -188,7 +322,10 @@ end
 function builder:ret(value)
 	return {
 		tag="return",
-		arg=value
+		arg=value or {
+      tag="void",
+      ty=self:ty "Void"
+    }
 	}
 end
 

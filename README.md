@@ -1,3 +1,4 @@
+![A big globe being surrounded by a fast moon, leaving a blue trace](./imgs/logo.jpg)
 # L4 (Low Level Lua Library)
 
 Welcome to the docs of L4! Here, we'll describe how to use this library to generate a 'hello world!' program.

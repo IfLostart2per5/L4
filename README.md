@@ -1,4 +1,4 @@
-![A big globe being surrounded by a fast moon, leaving a blue trace](./imgs/logo.png)
+<img src="./imgs/logo.png" alt="A white ball representing the earth, with a fast surrounding moon which leaves a blue trace" width="150">
 # L4 (Low Level Lua Library)
 
 Welcome to the docs of L4! Here, we'll describe how to use this library to generate a 'hello world!' program.

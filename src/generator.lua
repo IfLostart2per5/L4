@@ -7,11 +7,12 @@ function generator.new()
 		maps = {},
 		code = {},
 		funcs={},
+		attrs={},
 		env = {}
 	}, generator_mt)
 end
 
-local fenv = {math=math, table=table, string=string, load=load, ipairs=ipairs, pairs=pairs, extends = function(tbl1, tbl2) return setmetatable(tbl1, {__index=tbl2}) end}
+local fenv = {math=math, table=table, string=string, load=load, ipairs=ipairs, pairs=pairs, extends = function(tbl1, tbl2) return setmetatable(tbl1, {__index=tbl2}) end, tys=require("src.std")}
 
 configparser.setenv(fenv)
 function generator:loadpass(filename)
@@ -42,6 +43,28 @@ function generator:get()
 		funcs=self.funcs,
 		code=table.concat(self.code)
 	}
+end
+
+function generator:define_attr(name, initial)
+	if not self.attrs[name] then
+		self.attrs[name] = initial
+	end
+end
+
+function generator:change_attr(name, vl)
+	assert(self.attrs[name] ~= nil, "attr "..name.." doesn't exists")
+	self.attrs[name] = vl
+end
+
+function generator:get_attr(name)
+	return self.attrs[name]
+end
+function generator:table()
+	return {}
+end
+
+function generator:list(...)
+	return {...}
 end
 
 function generator:show(...)

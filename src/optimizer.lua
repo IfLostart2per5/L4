@@ -191,7 +191,7 @@ function optimizer:attack(node, data)
 		if (left.canattack and right.canattack) then
 			local r = {
 				tag=node.op:match "[+%-%*/]" and left.tag or "bool",
-				value=ops[node.op](left.value, right.value, left.tag == "int"),
+				value=ops[node.op](left.value, right.value,node.ty == tys.ty "Int"),
         ty=node.ty,
 				canattack=true
 			}
@@ -206,11 +206,6 @@ function optimizer:attack(node, data)
 		node.tag == "float" or
 		node.tag == "string" or
 		node.tag == "bool") and not data.useless_expr then
-
-		if node.tag == "float" and (math.floor(node.value) == node.value) then
-			node.tag = "int"
-      node.ty = tys.ty "Int"
-		end
 
 		node.canattack = true
 		return node

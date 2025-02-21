@@ -19,7 +19,8 @@ local tys =require("src.std")
 local builder = {}
 local builder_mt = {__index=builder}
 
-
+--UNIQUE OBJECT
+local vararg = {}
 ---Blocks void values
 ---@param node node
 ---@return node?
@@ -172,7 +173,7 @@ function builder:call(caller, ...)
   
   for i, a in ipairs({...}) do
     blockvoid(a)
-    if a.ty ~= sign.attrs.params[i] then
+    if a.ty ~= sign.attrs.params[i] and (not sign.attrs.params[i] == vararg) then
       error(("Expected %s, but got %s"):format(sign.attrs.params[i].name, a.ty.name))
     end
   end
@@ -264,6 +265,10 @@ function builder:block(name, func)
 end
 
 
+---@return table
+function builder:vararg()
+	return vararg
+end
 
 ---@return Signature
 function builder:signature(...)
@@ -271,6 +276,9 @@ function builder:signature(...)
 
   local params = {}
   for i = 1, #args - 1 do
+    if args[i] == vararg then
+	    break
+    end
     params[#params+1] = self:ty(args[i])
   end
 

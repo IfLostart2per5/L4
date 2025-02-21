@@ -87,6 +87,7 @@ id {
   --self:show(node.name)
   self:write(node.name)
 };
+void { };
 call {
   self:generate(node.caller)
   self:write("(")

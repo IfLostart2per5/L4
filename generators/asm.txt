@@ -1,0 +1,131 @@
+program {
+  self:write("//generated assembly aarch64 code\n")
+  self:write(".global _start\n")
+
+  for i = 1, #node do
+    self:generate(node[i])
+  end
+
+  table.insert(self.code, 3, "_start:\n  bl main\n  mov x8, 93\n  mov x0, 0\n  svc 0\n")
+};
+extern {
+  self:write(".extern "..node.name.."\n")
+};
+block {
+  self:write(node.name .. ":\n")
+  for _, s in ipairs(node.body) do
+    self:write("    ")
+    self:generate(s)
+    self:write("\n")
+  end
+  self:write("// end "..node.name.."\n")
+};
+binop {
+  self:generate(node.left)
+  self:write("mov x2, x0\n")
+  self:generate(node.right)
+  self:write("mov x1, x0\n")
+  if node.op == "+" then
+    self:write("add x0, x2, x1\n")
+  elseif node.op == "-" then
+    self:write("mul x1, x1, -1\n")
+    self:write("add x0, x2, x1\n")
+  elseif node.op == "*" then
+    self:write("mul x0, x2, x1\n")
+  elseif node.op == "/" then
+    self:write("div x0, x2, x1\n")
+  elseif node.op ~= "^" and node.op ~= "v" then
+    self:write("cmp x2, x1\n")
+  end
+};
+func {
+  self:write(node.name..":\n")
+  self:write("  stp x29, x0, [sp, #-16]!\n  mov x29, sp\n")
+  for _, i in ipairs(node.body) do
+    self:write("  ")
+    --i.name = node.name .. "." .. i.name
+    self:generate(i)
+  end
+
+  self:write("  ldp x29, x0, [sp], #16\n")
+  self:write("//end func "..node.name.."\n")
+};
+br {
+  self:write("b "..node.to.name.."\n")
+};
+condbr {
+  self:generate(node.condition)
+  local cond, opp
+  if node.cond.op == ">" then
+    cond = "gt"
+    opp = "lt"
+  elseif node.cond.op == "<" then
+    cond = "lt"
+    opp = "gt"
+  elseif node.cond.op == "==" then
+    cond = "eq"
+    opp = "ne"
+  end
+  self:write("b."..cond.." "..node.to.name.."\n")
+  if node.alt then
+    self:write("b."..opp.." "..node.alt.name.."\n")
+  end
+};
+return {
+  self:generate(node.arg)
+  self:write("ret\n")
+};
+int {
+  self:write("mov x0, " .. node.value.."\n")
+};
+str {
+  
+  self:define_attr("strs", self:table())
+  self:define_attr("strc", 0)
+  local counter = self:get_attr"strs"
+  local i = self:get_attr"strc"
+  local name = "LC"..i
+  self:change_attr("strc", i + 1)
+
+  local s = '"' .. node.value:gsub("\n", "\\n"):
+                    gsub("\t", "\\t"):
+		    gsub("\"", '\\"') .. '"'
+  local n
+  if counter[s] then
+
+    n = counter[s]
+  else
+    table.insert(self.code, 4, name .. ":\n")
+    table.insert(self.code, 5, "   .asciz "..s.."\n")
+
+    counter[s] = name
+    n = name
+   end
+    self:write("adrp x0, "..n.."\n")
+    self:write("add x0, x0, :lo12:"..n.."\n")
+
+};
+bool {
+  self:write(node.value and "mov x0, 1\n" or "mov x0, 0\n")
+};
+id {
+  --self:show(node.name)
+  self:write(node.name)
+};
+void { };
+call {
+  
+  local callconv = self:list("x0", "x1", "x2", "x3", "x4", "x5", "x6", "x7") 
+  for i, a in ipairs(node.args) do
+    if a.tag == "int" then
+      self:write("mov "..callconv[i]..", "..a.value.."\n")
+    else
+      self:generate(a)
+      if i > 1 then
+        self:write("mov "..callconv[i]..", x0\n")
+	end
+    end
+  end
+  self:write("bl "..node.caller.name.."\n");
+};
+nogenerate { }

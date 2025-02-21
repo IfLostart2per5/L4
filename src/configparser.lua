@@ -1,6 +1,6 @@
 local lpeg = require "lpeg"
 local P, S, V, C, Ct = lpeg.P, lpeg.S, lpeg.V, lpeg.C, lpeg.Ct
-
+DEBUG = false
 local locale = lpeg.locale()
 
 local space = locale.space^0
@@ -26,6 +26,9 @@ local G = P {
 		if not block then
 			block = params
 			params = {"node"}
+		end
+		if DEBUG then
+			print("last node", name)
 		end
 		return {name, load("return function(self, "..table.concat(params, ", ")..") "..block.." end", name .. " treater", nil, cfg.env)()}
 	end),

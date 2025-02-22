@@ -7,6 +7,10 @@
 ---@field tag string the nodetype
 local node = {}
 
+--sends a message to the node
+---@param m string
+function node:message(m)
+end
 --literals here
 
 ---@class int : node

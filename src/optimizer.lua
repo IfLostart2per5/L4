@@ -117,7 +117,7 @@ local emptydata = {}
 
 function optimizer:newscope(name, ...)
 	local parents = {...}
-	self.scopes[name] = setmetatable({names={}, changed={}, used={}}, {__index=function(t, k)
+	self.scopes[name] = setmetatable({names={}, changed={}}, {__index=function(t, k)
 		local r = self.scopes.global.names[k]
 		if not r then
 			for i = 1, #parents do
@@ -214,7 +214,7 @@ function optimizer:attack(node, data)
 		local got = self:get(node.name)
     --constant propagation: if the name wasn't changed, it's safe to get its value
 		if sc.names[node.name] and  not sc.changed[node.name] then
-			
+			node:message("clear")
 			return got
 		end
 		
@@ -262,27 +262,40 @@ function optimizer:attack(node, data)
       
 			while j <= #block.body do
 				--print(block.body[j].tag)
-				if block.body[j].tag == "assign" then goto continue end        
+				if block.body[j].tag == "assign" then goto discarddeads end        
 				self:attack(block.body[j], {useless_expr=self.config.discard_deads, tomarkret=node, block=block, index=j})
 
         --branch elimination if it's followed by the block it appoints
+	::discarddeads::
         if self.config.discard_deads then 
-          if block.body[j].tag == "nogenerate" then
+          if block.body[j].tag == "nogenerate" or block.body[j].refc == 0 then
             table.remove(block.body, j)
           elseif block.body[j].tag == "br" then
             local n = block.body[j]
             if n.to == node.body[i + 1] or n.to == node.body[i + 2] then
               if node.body[i + 1] and node.body[i + 1].refc == 0 then
-                table.remove(node.body, i + 1)
+                table.remove(node.body, i + 1):message("clear")
               end
 
-              table.remove(block.body, j)
-            end
+              table.remove(block.body, j):message("clear")
+      end
           end
         end
 				::continue::
         j = j + 1
 			end
+			do
+				local l = 1
+				while l <= #block.body do
+					if block.body[l].refc == 0 then
+						table.remove(block.body, l)
+						l = l - 1
+					end
+
+					l = l + 1
+				end
+			end
+
 
       --simple heuristic to optimize: if the function body is shorter, INLINE!
 			if self.config.expand_functions and not isrecursive and #block.body <= 5 and node.name ~= "main" then
@@ -315,7 +328,7 @@ function optimizer:attack(node, data)
 
     --inline logic
 		if self.config.expand_functions and caller.caninline then
-      caller.refc = caller.refc - 1
+      caller:message("decref")
 			node.tag = "nogenerate"
   
 			self:newscope(data.callcounter, self:scope "@", self:scope(caller.name)) --creates a temp scope
@@ -395,7 +408,8 @@ function optimizer:attack(node, data)
     --inlines a conditional branch, if the condition is constant
 		if isfalsy(cond) then
 			node.tag = "br"
-			node.to.refc = node.to.refc - 1
+			node.to:message("decref")
+			node.condition:message("clear")
 
 			node.to = node.alt
 			node.alt = nil
@@ -403,7 +417,8 @@ function optimizer:attack(node, data)
 			self:attack(node, mdata)
 		elseif isfalsy(cond) == false then
 			node.tag ="br"
-			node.alt.refc = node.alt.refc - 1
+			node.alt:message("decref")
+			node.condition:message("clear")
 			node.alt = nil
 			node.condition = nil
 			self:attack(node, mdata)

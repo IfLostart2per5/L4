@@ -1,15 +1,74 @@
 program {
   self:write("//generated assembly aarch64 code\n")
   self:write(".global _start\n")
+  self:define_attr("externs", self:table())
+  self:define_attr("section_data", self:table())
+  local curscope = self:table()
+  curscope.totalspace = 0
+  curscope.vars = self:table()
+  self:define_attr("scope", curscope)
 
+  local scopes = self:table()
+  scopes.list = self:list(curscope)
+  function scopes.create(s, name)
+    local sc = self:table()
+    sc.totalspace = 0
+    sc.vars = self:table()
+    table.insert(s.list, sc)
+    self:change_attr("scope", sc)
+  end
+
+  
+  self:define_attr("scopes", scopes)
+  self:define_attr("ismain", false)
+  local prec = self:table()
+  prec["+"] = 1
+  prec["-"] = 1
+  prec["*"] = 2
+  prec["/"] = 2
+  self:define_attr("prec", prec)
+
+  local tysize = self:table()
+  tysize[tys.ty "Int"] = 8 --cause the x registers
+  tysize[tys.ty "Float"] = 8 --cause the d registerd
+  tysize[tys.ty "String"] = 8 -- it's a pointer
+  self:define_attr("tysize", tysize)
   for i = 1, #node do
     self:generate(node[i])
   end
 
-  table.insert(self.code, 3, "_start:\n  bl main\n  mov x8, 93\n  mov x0, 0\n  svc 0\n")
+  local ext = self:get_attr"externs"
+  local i = 1
+  while i <= #ext do
+    table.insert(self.code, 1 + i, ext[i])
+    i = i + 1
+  end
+  self:write("exit:\n  mov x8, 93\n  mov x0, 0\n  svc 0\n")
+  self:write(".section .data\n")
+
+  local sec = self:get_attr "section_data"
+
+  for _, v in ipairs(sec) do
+    self:write(v)
+   end
+
+
+};
+assign {
+  local scope = self:get_attr "scope"
+  local size = self:get_attr("tysize")[node.ty]
+
+  local varc = scope.totalspace + size
+  scope.totalspace = varc
+
+  local ptr = "sp, "..(varc - size)
+  self:generate(node.val)
+  local reg = node.val.ty == tys.ty "Float" and "d0" or "x0"
+  self:write("str "..reg..", ["..ptr.."]\n")
+  scope.vars[node.name] = ptr
 };
 extern {
-  self:write(".extern "..node.name.."\n")
+  table.insert(self:get_attr "externs", ".extern "..node.name.."\n")
 };
 block {
   self:write(node.name .. ":\n")
@@ -20,34 +79,72 @@ block {
   end
   self:write("// end "..node.name.."\n")
 };
-binop {
-  self:generate(node.left)
-  self:write("mov x2, x0\n")
-  self:generate(node.right)
-  self:write("mov x1, x0\n")
+binop(node, reg) {
+  local prefix = ""
+  local regt = "x"
+
+  local lprec = self:get_attr("prec")[node.left.op] or 0
+  local rprec = self:get_attr("prec")[node.right.op] or 0
+  local prec = lprec - rprec
+  if node.ty == tys.ty "Float" then
+    prefix = "f"
+    regt = "d"
+  end
+  reg = reg or 0
+  local left, right = node.left, node.right
+  local function mov(r1, r2)
+    self:write(("%smov %s%d, %s%d\n"):format(prefix, regt, r1, regt, r2))
+    end
+  if prec < 0 then
+    left, right = right, left
+  end
+
+  self:generate(left, reg)
+  mov(reg + 1, reg)
+  self:generate(right, reg)
+
+  local r, r2 = regt .. reg, regt .. (reg + 1)
   if node.op == "+" then
-    self:write("add x0, x2, x1\n")
+    self:write(("%sadd %s, %s, %s\n"):format(prefix, r, r, r2))
   elseif node.op == "-" then
-    self:write("mul x1, x1, -1\n")
-    self:write("add x0, x2, x1\n")
+    self:write(("%ssub %s, %s, %s\n"):format(prefix, r, r2, r))
   elseif node.op == "*" then
-    self:write("mul x0, x2, x1\n")
+    self:write(("%smul %s, %s, %s\n"):format(prefix, r, r, r2))
   elseif node.op == "/" then
-    self:write("div x0, x2, x1\n")
+    self:write(("%sdiv %s, %s, %s\n"):format(prefix, r, r2, r))
   elseif node.op ~= "^" and node.op ~= "v" then
-    self:write("cmp x2, x1\n")
+    self:write(("%scmp %s, %s\n"):format(prefix, r2, r))
   end
 };
 func {
+  if node.name == "main" or node.name == "_start" then
+    node.name = "_start"
+    self:change_attr("ismain", true)
+  end
+  local ism = self:get_attr "ismain"
   self:write(node.name..":\n")
-  self:write("  stp x29, x0, [sp, #-16]!\n  mov x29, sp\n")
-  for _, i in ipairs(node.body) do
-    self:write("  ")
-    --i.name = node.name .. "." .. i.name
-    self:generate(i)
+  self:get_attr("scopes"):create(node.name)
+  if not ism then
+    self:write("  stp x29, x30, [sp, -16]\nmov x29, sp\n")
   end
 
-  self:write("  ldp x29, x0, [sp], #16\n")
+  local reserved = #self.code
+  for _, i in ipairs(node.body) do
+    self:write("  ")
+    self:generate(i)
+  end
+  local total = self:get_attr("scope").totalspace
+  local space = (total == 0 and 0 or 1) * 8 * (2 + (total / 8 - (total / 8 % 2)))
+
+  if space > 0 then
+    table.insert(self.code, reserved + 1, "sub sp, sp, "..space.."\n")
+    self:write("add sp, sp, "..space.."\n")
+  end
+
+  if not ism then
+    self:write("ldp x29, x30, [sp], 16\n")
+  end
+  self:change_attr("ismain", false)
   self:write("//end func "..node.name.."\n")
 };
 br {
@@ -72,16 +169,26 @@ condbr {
   end
 };
 return {
-  self:generate(node.arg)
-  self:write("ret\n")
+  if self:get_attr "ismain" then
+    self:write("b exit\n")
+  else
+    self:generate(node.arg)
+    self:write("ret\n")
+  end
 };
-int {
-  self:write("mov x0, " .. node.value.."\n")
+int(node, reg) {
+  reg = reg and 'x' .. reg or 'x0'
+  self:write("mov "..reg..", " .. node.value.."\n")
 };
-str {
-  
+float(node, reg) {
+  reg = reg and 'd' .. reg or 'd0'
+  self:write("fmov "..reg..", "..node.value.."\n")
+};
+str(node, reg) {
+  reg = reg and 'x' .. reg or 'x0'
   self:define_attr("strs", self:table())
   self:define_attr("strc", 0)
+  self:define_attr("section_data", self:table())
   local counter = self:get_attr"strs"
   local i = self:get_attr"strc"
   local name = "LC"..i
@@ -95,35 +202,59 @@ str {
 
     n = counter[s]
   else
-    table.insert(self.code, 4, name .. ":\n")
-    table.insert(self.code, 5, "   .asciz "..s.."\n")
+    local sec = self:get_attr"section_data"
+    table.insert(sec, name .. ":\n")
+    table.insert(sec, "   .asciz "..s.."\n")
 
     counter[s] = name
     n = name
    end
-    self:write("adrp x0, "..n.."\n")
-    self:write("add x0, x0, :lo12:"..n.."\n")
+    self:write("adrp "..reg..", "..n.."\n")
+    self:write("add "..reg..", " ..reg..", :lo12:"..n.."\n")
+};
+bool(node, reg) {
+  reg = reg and 'x' .. reg or "x0"
+  self:write(node.value and "mov "..reg..", 1\n" or "mov "..reg..", 0\n")
+};
+id(node, reg) {
+  local scope = self:get_attr "scope"
+  if node.ty == tys.ty "Float" then
+    reg = reg and 'd' .. reg or 'd0'
+  else
+    reg = reg and 'x' .. reg or 'x0'
+  end
 
-};
-bool {
-  self:write(node.value and "mov x0, 1\n" or "mov x0, 0\n")
-};
-id {
-  --self:show(node.name)
-  self:write(node.name)
+  local ptr = scope.vars[node.name]
+
+  self:write("ldr "..reg..", ["..ptr.."]\n")
+
 };
 void { };
 call {
   
-  local callconv = self:list("x0", "x1", "x2", "x3", "x4", "x5", "x6", "x7") 
+  local callconv = self:list("0", "1", "2", "3", "4", "5", "6", "7")
+  local intc = 1
+  local floatc = 1
   for i, a in ipairs(node.args) do
     if a.tag == "int" then
-      self:write("mov "..callconv[i]..", "..a.value.."\n")
+      self:generate(a, intc - 1)
+      intc = intc + 1
+    elseif a.tag == "float" then
+      self:generate(a, floatc - 1)
+      floatc = floatc + 1
+    elseif a.tag == "str" then
+      self:generate(a, intc - 1)
+      intc = intc + 1
     else
-      self:generate(a)
-      if i > 1 then
-        self:write("mov "..callconv[i]..", x0\n")
-	end
+      local isf = a.ty == tys.ty "Float"
+      self:generate(a, (isf and floatc or intc) - 1)
+      local idx = isf and floatc or intc
+      if isf then
+        floatc = floatc + 1
+      else
+        intc = intc + 1
+      end
+  
     end
   end
   self:write("bl "..node.caller.name.."\n");

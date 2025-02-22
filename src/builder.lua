@@ -31,13 +31,24 @@ local function blockvoid(node)
   return node
 end
 
----comment
+---blocks void type
 ---@param ty Typedef
 ---@return Typedef?
 local function blockvoidty(ty)
   return assert(ty ~= tys.ty "Void" and ty, "Tyoe void for values is forbidden")
 end
- 
+
+local node_mt = {
+	__index={
+		message=function(s, m)
+		end
+	}
+}
+
+local function node(tbl)
+	return setmetatable(tbl, node_mt)
+end
+
 
 function builder.new()
   local glb = {}
@@ -66,20 +77,31 @@ end
 ---@return assign
 function builder:assign(name, ty, val)
   local typ = blockvoidty(self:ty(ty))
-
+  local nd =node {
+	  tag="assign",             
+          name=name,
+                   val=blockvoid(val),            
+		   refc=0,
+		   ty=typ,
+		   message=function(s, m)                                        
+			   if m == "incref" then                                         
+				   s.refc = s.refc + 1                                   
+				   s.candestroy = false                          
+			   elseif m == "decref" then
+				   if s.refc > 0 then
+				     s.refc = s.refc - 1
+			     end
+                          end
+                   end
+        }
   if self.scope[name] then
     assert(self.scope[name][1] == typ, ("Expected type %s, but got %s"):format(self.scope[name][1].name, typ.name))
-    self.scope[name][2] = blockvoid(val)
+    self.scope[name][2] = nd
   else
-    self.scope[name] = {typ, blockvoid(val)}
+    self.scope[name] = {typ, nd}
   end
-	return {
-		tag="assign",
-		name=name,
-		val=val,
-    refc=0,
-    ty=typ
-	}
+
+  return nd
 end
 
 function builder:_put_scope(name)
@@ -96,10 +118,17 @@ end
 ---@param name string
 ---@return id
 function builder:id(name)
-	return {
+	local vl = self:getid(name)
+	vl[2]:message("incref")
+	return node {
 		tag="id",
 		name=name,
-    ty=assert(self:getid(name), "id "..name.." not found")[1], 
+    ty=assert(vl, "id "..name.." not found")[1],
+                message=function(s, m)
+			if m == "clear" then
+				vl[2]:message("decref")
+			end
+		end
 	}
 end
 
@@ -108,7 +137,7 @@ end
 ---@param vl integer
 ---@return int
 function builder:int(vl)
-	return {
+	return node {
 		tag="int",
 		value=assert(type(vl) == "number" and math.floor(vl), "Expected a number"),
     ty=self:ty "Int"
@@ -118,7 +147,7 @@ end
 ---@param vl number
 ---@return float
 function builder:float(vl)
-  return {
+  return node {
     tag="float",
     value=assert(type(vl) == "number" and vl, "Expected a float"),
     ty=self:ty "Float"
@@ -128,7 +157,7 @@ end
 ---@param s string
 ---@return str
 function builder:str(s)
-	return {
+	return node {
 		tag="str",
 		value=assert(type(s) == "string" and s, "Expected a string"),
     ty=self:ty "String"
@@ -139,7 +168,7 @@ end
 ---@param vl boolean
 ---@return bool
 function builder:bool(vl)
-	return {
+	return node {
 		tag="bool",
 		value=vl,
     ty=self:ty "Bool"
@@ -152,10 +181,10 @@ end
 ---@param name string
 ---@return extern
 function builder:extern(name, ty)
-	local e = {
+	local e = node {
 		tag="extern",
 		name=name,
-    ty=self:ty(ty)
+		ty=self:ty(ty)
 	}
 
   self.scopes.global[name] = {e.ty, e}
@@ -177,19 +206,19 @@ function builder:call(caller, ...)
       error(("Expected %s, but got %s"):format(sign.attrs.params[i].name, a.ty.name))
     end
   end
-  if caller.tag == "id" then
-    ---@cast caller id
-    local f = self:getid(caller.name)[2]
-    if f.tag == "func" then
-      ---@cast f func 
-      f.refc = f.refc + 1
-    end
-  end
-	return {
+	return node {
 		tag="call",
 		caller=caller,
 		args={...},
-    ty=sign.attrs.returns
+                ty=sign.attrs.returns,
+	        message=function(s, m)
+			if m == "clear" then
+				caller:message("clear")
+				for _, i in ipairs(args) do
+					i:message("clear")
+				end
+			end
+		end
 	}
 end
 
@@ -201,12 +230,18 @@ end
 function builder:binop(ty, left, right, op)
   local isbool = not (op == "+" or op == "-" or op == "*" or op == "/")
   local t = blockvoidty(self:ty(ty))
-	return {
+	return node {
 		tag="binop",
 		left=blockvoid(left),
 		right=blockvoid(right),
 		op=op,
-    ty=assert((not isbool and ( left.ty == t and right.ty == t) and t or nil) or (t == self:ty "Bool" and t), ("Types %s and %s are imcompatible with %s"):format(left.ty.name, right.ty.name, ty.name))
+                ty=assert((not isbool and ( left.ty == t and right.ty == t) and t or nil) or (t == self:ty "Bool" and t), ("Types %s and %s are imcompatible with %s"):format(left.ty.name, right.ty.name, ty.name)),
+		message=function(s, m)
+			if m == "clear" then
+				s.left:message("clear")
+				s.right:message("clear")
+			end
+		end
 	}
 end
 
@@ -229,11 +264,20 @@ function builder:branch(condition, tblock, fblock)
 	if fblock then
 		fblock.refc = fblock.refc + 1
 	end
-	return {
+	return node {
 		tag=cond .. "br",
 		to=tblock,
 		alt=fblock,
-		condition=condition
+		condition=condition,
+		message=function(s, m)
+			s.to:message("decref")
+			if s.condition then
+				s.condition:message("clear")
+			end
+			if s.alt then
+				s.alt:message("decref")
+			end
+		end
 	}
 end
 
@@ -243,7 +287,7 @@ end
 ---@return block
 function builder:block(name, func)
   local retty = func and func.attrs.returns
-	return {
+	return node {
 		tag="block",
 		name=name,
 		refc=0,
@@ -260,7 +304,20 @@ function builder:block(name, func)
         end
       end
 			table.insert(s.body, i)
+		end,
+		message=function(s, m)
+			if m == "incref" then
+				s.refc = s.refc + 1
+			elseif m == "decref" then
+				s.refc = s.refc - 1
+				if s.refc == 0 then
+					for _, i in ipairs(s.body) do
+						i:message("clear")
+					end
+				end
+			end
 		end
+				
 	}
 end
 
@@ -295,7 +352,7 @@ function builder:func(name, params, signature)
   for i, v in ipairs(params) do
     self.scope[v] = {signature.attrs.params[i], {tag="boiler"}}
   end
-	local f = {
+	local f = node {
 		tag="func",
 		name=name,
 		params=params,
@@ -307,7 +364,7 @@ function builder:func(name, params, signature)
 		setblock=function(s, bl)
 			s.block = bl
 			if #s.body == 0 then
-				bl.refc = bl.refc + 1 --o bloco principal q é usado pela funcao
+				bl:message("incref") --o bloco principal q é usado pela funcao
 			end
       if not s.previous[bl] then
 			  table.insert(s.body, bl)
@@ -316,6 +373,15 @@ function builder:func(name, params, signature)
 		end,
 		push=function(s, i)
 			s.block:push(i)
+		end,
+		message=function(s, m)
+			if m == "incref" then
+				s.refc = s.refc + 1
+			elseif m == "decref" then
+				if s.refc > 0 then
+					s.refc = s.refc - 1
+				end
+			end
 		end
 	}
 
@@ -328,12 +394,15 @@ end
 ---@param value node
 ---@return return
 function builder:ret(value)
-	return {
+	return node {
 		tag="return",
-		arg=value or {
+		arg=value or node {
       tag="void",
       ty=self:ty "Void"
-    }
+    },
+        message=function(s, m)
+		if m == "clear" then s.arg:message("clear") end
+	end
 	}
 end
 
@@ -341,7 +410,7 @@ end
 ---@return program
 function builder:get()
 	self.decls.tag = "program"
-	local decls = self.decls
+	local decls = node(self.decls)
 	self.decls = {}
 	return decls
 end

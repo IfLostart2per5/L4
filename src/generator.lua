@@ -29,10 +29,10 @@ function generator:config(filename)
 	self.maps = self:loadpass(filename)
 end
 
-function generator:generate(node)
+function generator:generate(node, ...)
 	local f = self.maps[node.tag]
 	--print(node.tag)
-	f(self, node)
+	f(self, node, ...)
 end
 
 function generator:write(ln)
